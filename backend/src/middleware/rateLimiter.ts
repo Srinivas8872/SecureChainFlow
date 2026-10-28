@@ -41,3 +41,18 @@ export const publicVerificationLimiter = rateLimit({
     }
   }
 });
+
+export const exportLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 30, // 30 exports per 5 minutes per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      code: 'EXPORT_RATE_LIMIT_EXCEEDED',
+      message: 'Too many export requests, please wait before generating another report.'
+    }
+  }
+});
+

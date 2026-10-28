@@ -44,17 +44,30 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
 
           {user ? (
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex flex-col text-right">
-                <span className="text-xs font-semibold text-slate-200">{user.name}</span>
-                <span className="text-[11px] text-slate-400">{user.organizationName || 'Consortium Node'}</span>
-              </div>
+              <Link
+                to="/settings"
+                title="View Profile & Settings"
+                className="flex items-center gap-2.5 p-1 sm:px-2.5 sm:py-1.5 rounded-xl hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all group"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="hidden sm:flex flex-col text-left">
+                  <span className="text-xs font-semibold text-slate-200 group-hover:text-sky-400 transition-colors">
+                    👋 Welcome, <strong className="text-white font-bold">{user.name}</strong>
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {user.organizationName || 'Consortium Node'}
+                  </span>
+                </div>
+              </Link>
               <Badge variant="info" dot>
                 {user.role}
               </Badge>
               <button
                 onClick={onLogout}
                 title="Sign Out"
-                className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
               </button>

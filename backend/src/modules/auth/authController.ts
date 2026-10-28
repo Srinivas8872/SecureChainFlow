@@ -202,9 +202,61 @@ export async function getCurrentUser(req: Request, res: Response, next: NextFunc
 
 export async function getOrganizations(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const orgs = await Organization.find({ status: 'VERIFIED' }).select('name type facilities');
-    sendSuccess(res, orgs);
+    const orgs = await Organization.find()
+      .sort({ name: 1 })
+      .lean();
+
+    const orgIds = orgs.map(o => o._id);
+    const userCounts = await User.aggregate([
+      { $match: { organizationId: { $in: orgIds } } },
+      { $group: { _id: '$organizationId', count: { $sum: 1 } } }
+    ]);
+    const countMap: Record<string, number> = {};
+    userCounts.forEach((c: any) => {
+      countMap[c._id.toString()] = c.count;
+    });
+
+    const enriched = orgs.map(o => ({
+      ...o,
+      id: o._id.toString(),
+      memberCount: countMap[o._id.toString()] || 0
+    }));
+
+    sendSuccess(res, enriched);
   } catch (err) {
     next(err);
   }
 }
+
+export async function listUsers(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const users = await User.find()
+      .select('-passwordHash')
+      .populate('organizationId', 'name type status facilities')
+      .sort({ createdAt: -1 });
+
+    sendSuccess(res, users);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    if (!req.user) {
+      return next(new AppError('Authentication required.', 401, 'UNAUTHORIZED'));
+    }
+    const { name } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(new AppError('User not found.', 404, 'NOT_FOUND'));
+    }
+    if (name) user.name = name;
+    await user.save();
+    const populated = await User.findById(user._id).populate('organizationId', 'name type status facilities');
+    sendSuccess(res, populated?.toJSON());
+  } catch (err) {
+    next(err);
+  }
+}
+

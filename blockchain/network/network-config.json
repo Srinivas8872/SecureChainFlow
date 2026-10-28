@@ -1,0 +1,35 @@
+{
+  "networkName": "securechainflow-consortium",
+  "version": "2.5.0",
+  "channel": {
+    "name": "mychannel",
+    "description": "SecureChainFlow supply-chain consortium transaction channel"
+  },
+  "chaincode": {
+    "name": "securechainflow",
+    "version": "1.0.0",
+    "sequence": 1,
+    "path": "../chaincode",
+    "lang": "node"
+  },
+  "organizations": [
+    {
+      "name": "Org1",
+      "mspId": "Org1MSP",
+      "role": "SUPPLIER_PROCESSOR_CONSORTIUM",
+      "peerPort": 7051,
+      "caPort": 7054
+    },
+    {
+      "name": "Org2",
+      "mspId": "Org2MSP",
+      "role": "LOGISTICS_RETAIL_CONSORTIUM",
+      "peerPort": 9051,
+      "caPort": 8054
+    }
+  ],
+  "orderer": {
+    "type": "etcdraft",
+    "port": 7050
+  }
+}

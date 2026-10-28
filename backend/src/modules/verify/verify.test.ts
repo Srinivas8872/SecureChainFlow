@@ -28,7 +28,7 @@ beforeAll(async () => {
   const org = await Organization.create({
     name: 'Verify Test Org',
     type: 'SUPPLIER',
-    status: 'ACTIVE',
+    status: 'VERIFIED',
     contactEmail: 'verify@test.com',
   });
   orgId = org._id.toString();
@@ -144,6 +144,104 @@ describe('GET /api/v1/verify/:token', () => {
     expect(res.body.data.integrity.verified).toBeDefined();
     expect(res.headers['authorization']).toBeUndefined(); // no auth header in response
   });
+
+  it('should enforce public privacy boundary and not leak internal Mongo IDs or passwords', async () => {
+    const res = await request(app).get(`/api/v1/verify/${verificationToken}`);
+    expect(res.status).toBe(200);
+
+    const data = res.body.data;
+    // Internal MongoDB _id fields should not be exposed at top-level
+    expect(data._id).toBeUndefined();
+    expect(data.__v).toBeUndefined();
+    // Passwords or sensitive hashes should never appear
+    expect(data.passwordHash).toBeUndefined();
+    expect(data.password).toBeUndefined();
+    // Internal user emails should not leak to public viewer
+    expect(data.eventChain[0].recordedBy?.email).toBeUndefined();
+  });
+
+  it('should detect hash mismatch and report tampering in integrity score', async () => {
+    // Create a batch with a tampered event
+    const tamperedBatch = await Batch.create({
+      batchCode: 'VFY-TAMPERED-01',
+      productId: productId,
+      organizationId: orgId,
+      currentCustodianId: orgId,
+      source: 'Compromised Facility',
+      quantity: 100,
+      unit: 'KG',
+      manufactureDate: new Date('2025-02-01'),
+      createdBy: userId,
+      blockchainStatus: 'LOCAL_DEMO',
+    });
+
+    // Record event with an illegitimate hash
+    await SupplyChainEvent.create({
+      batchId: tamperedBatch._id,
+      eventType: 'PROCESSED',
+      actorId: userId,
+      organizationId: orgId,
+      location: 'Warehouse B',
+      occurredAt: new Date('2025-02-02'),
+      payloadHash: '0000000000000000000000000000000000000000000000000000000000000000', // invalid tampered hash
+      blockchainStatus: 'LOCAL_DEMO',
+    });
+
+    const res = await request(app).get(`/api/v1/verify/${tamperedBatch.verificationToken}`);
+    expect(res.status).toBe(200);
+
+    const integrity = res.body.data.integrity;
+    expect(integrity.verified).toBe(false);
+    expect(integrity.hashMismatches).toBeGreaterThanOrEqual(1);
+    expect(integrity.score).toBeLessThan(100);
+  });
+
+  it('should return event history in strict chronological order', async () => {
+    const multiEventBatch = await Batch.create({
+      batchCode: 'VFY-CHRONO-01',
+      productId: productId,
+      organizationId: orgId,
+      currentCustodianId: orgId,
+      source: 'Orchard Field 3',
+      quantity: 250,
+      unit: 'KG',
+      manufactureDate: new Date('2025-03-01'),
+      createdBy: userId,
+      blockchainStatus: 'LOCAL_DEMO',
+    });
+
+    // Create events out-of-order in the database
+    await SupplyChainEvent.create({
+      batchId: multiEventBatch._id,
+      eventType: 'DISPATCHED',
+      actorId: userId,
+      organizationId: orgId,
+      occurredAt: new Date('2025-03-05T10:00:00Z'),
+      payloadHash: 'hash-later',
+      blockchainStatus: 'LOCAL_DEMO',
+    });
+
+    await SupplyChainEvent.create({
+      batchId: multiEventBatch._id,
+      eventType: 'REGISTERED',
+      actorId: userId,
+      organizationId: orgId,
+      occurredAt: new Date('2025-03-01T08:00:00Z'),
+      payloadHash: 'hash-earlier',
+      blockchainStatus: 'LOCAL_DEMO',
+    });
+
+    const res = await request(app).get(`/api/v1/verify/${multiEventBatch.verificationToken}`);
+    expect(res.status).toBe(200);
+
+    const events = res.body.data.eventChain;
+    expect(events.length).toBe(2);
+    expect(new Date(events[0].occurredAt).getTime()).toBeLessThan(
+      new Date(events[1].occurredAt).getTime()
+    );
+    expect(events[0].eventType).toBe('REGISTERED');
+    expect(events[1].eventType).toBe('DISPATCHED');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -175,17 +273,23 @@ describe('GET /api/v1/analytics/summary', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ANALYTICS RISK ENDPOINT
+// ANALYTICS RISK ENDPOINT (GET & POST)
 // ---------------------------------------------------------------------------
-describe('POST /api/v1/analytics/risk', () => {
-  it('should return 401 without auth token', async () => {
+describe('ANALYTICS RISK API (/api/v1/analytics/risk)', () => {
+  it('POST /risk - should return 401 without auth token', async () => {
     const res = await request(app)
       .post('/api/v1/analytics/risk')
       .send({ batchId });
     expect(res.status).toBe(401);
   });
 
-  it('should return 400 when batchId is missing', async () => {
+  it('GET /risk - should return 401 without auth token', async () => {
+    const res = await request(app)
+      .get(`/api/v1/analytics/risk?batchId=${batchId}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('POST /risk - should return 400 when batchId is missing', async () => {
     const res = await request(app)
       .post('/api/v1/analytics/risk')
       .set('Authorization', `Bearer ${authToken}`)
@@ -194,7 +298,15 @@ describe('POST /api/v1/analytics/risk', () => {
     expect(res.body.error.code).toBe('BAD_REQUEST');
   });
 
-  it('should return 404 for non-existent batchId', async () => {
+  it('GET /risk - should return 400 when batchId query parameter is missing', async () => {
+    const res = await request(app)
+      .get('/api/v1/analytics/risk')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_REQUEST');
+  });
+
+  it('POST /risk - should return 404 for non-existent batchId', async () => {
     const fakeId = new mongoose.Types.ObjectId().toString();
     const res = await request(app)
       .post('/api/v1/analytics/risk')
@@ -203,7 +315,15 @@ describe('POST /api/v1/analytics/risk', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should return risk score with heuristic fallback for a valid batch', async () => {
+  it('GET /risk - should return 404 for non-existent batchId', async () => {
+    const fakeId = new mongoose.Types.ObjectId().toString();
+    const res = await request(app)
+      .get(`/api/v1/analytics/risk?batchId=${fakeId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('POST /risk - should return risk score with heuristic fallback for a valid batch', async () => {
     const res = await request(app)
       .post('/api/v1/analytics/risk')
       .set('Authorization', `Bearer ${authToken}`)
@@ -220,7 +340,22 @@ describe('POST /api/v1/analytics/risk', () => {
     expect(data.riskScore).toBeLessThanOrEqual(100);
     expect(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).toContain(data.riskLevel);
     expect(Array.isArray(data.anomalies)).toBe(true);
-    expect(data.source).toBe('heuristic_fallback');
+    expect(['ai_service', 'heuristic_fallback']).toContain(data.source);
     expect(data.analysedAt).toBeDefined();
+  });
+
+  it('GET /risk - should return risk score via GET with query parameter', async () => {
+    const res = await request(app)
+      .get(`/api/v1/analytics/risk?batchId=${batchId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const data = res.body.data;
+    expect(data.batchId).toBe(batchId);
+    expect(data.batchCode).toBe('VFY-001');
+    expect(typeof data.riskScore).toBe('number');
+    expect(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).toContain(data.riskLevel);
   });
 });

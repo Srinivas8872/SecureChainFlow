@@ -1,20 +1,71 @@
 """
 SecureChainFlow AI/ML Inference Service
 Provides predictive quality risk scoring, anomaly detection for supply-chain batches,
-and transparent data provenance metadata.
+and transparent data provenance metadata using scikit-learn and heuristic guardrails.
 """
 
+import os
+import math
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional, Literal
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional, Literal
-from datetime import datetime, timezone
-import math
+import joblib
+
+# ---------------------------------------------------------------------------
+# Model Artifact Resolution
+# ---------------------------------------------------------------------------
+MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "model-artifacts")
+MODEL_FILE = os.path.join(MODEL_DIR, "batch_risk_classifier_v1.joblib")
+_loaded_model = None
+
+FEATURE_COLUMNS = [
+    "temp_excursions",
+    "temp_mean",
+    "temp_std",
+    "humidity_excursions",
+    "humidity_mean",
+    "custody_gap_hours_max",
+    "total_events",
+    "hash_mismatches",
+    "is_expired",
+    "is_recalled"
+]
+
+
+# Attempt eager load on import, and refresh on lifespan
+try:
+    if os.path.exists(MODEL_FILE):
+        _loaded_model = joblib.load(MODEL_FILE)
+        print(f"[AI Service] Successfully loaded scikit-learn model from {MODEL_FILE}")
+    else:
+        print("[AI Service] Note: Model artifact not found on disk; operating in heuristic mode.")
+except Exception as e:
+    print(f"[AI Service] Warning: Failed to load model artifact ({e}); using heuristic fallback.")
+    _loaded_model = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _loaded_model
+    if _loaded_model is None and os.path.exists(MODEL_FILE):
+        try:
+            _loaded_model = joblib.load(MODEL_FILE)
+            print(f"[AI Service] Lifespan loaded scikit-learn model from {MODEL_FILE}")
+        except Exception as e:
+            print(f"[AI Service] Lifespan load warning ({e})")
+    yield
+
 
 app = FastAPI(
     title="SecureChainFlow AI Decision-Support Service",
-    version="1.1.0",
-    description="Statistical & Machine Learning Risk/Anomaly Scoring Engine for Supply Chain Events"
+    version="1.2.0",
+    description="Machine Learning Risk & Cold-Chain Anomaly Scoring Engine for Supply Chain Events",
+    lifespan=lifespan
 )
 
 app.add_middleware(
@@ -24,19 +75,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # ---------------------------------------------------------------------------
 # Data Models
 # ---------------------------------------------------------------------------
-
-class BatchFeatureInput(BaseModel):
-    """Legacy /predict endpoint schema."""
-    batchId: str = Field(..., description="Canonical Batch UUID")
-    transitDurationHours: float = Field(..., ge=0.0)
-    tempVariance: float = Field(..., ge=0.0)
-    custodyHandovers: int = Field(..., ge=1)
-    reportedExceptions: int = Field(default=0, ge=0)
-    supplierReliabilityScore: float = Field(default=1.0, ge=0.0, le=1.0)
-
 
 class EventRecord(BaseModel):
     eventType: str
@@ -66,12 +108,23 @@ class RiskScoreRequest(BaseModel):
 
 
 class RiskScoreResponse(BaseModel):
-    risk_score: float = Field(description="0-100 risk score")
+    risk_score: float = Field(description="0-100 continuous risk score")
     risk_level: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
     anomalies: List[str]
     model_version: str
     generated_at: str
+    feature_summary: Optional[Dict[str, Any]] = None
     disclaimer: str
+
+
+class BatchFeatureInput(BaseModel):
+    """Legacy /predict endpoint schema."""
+    batchId: str = Field(..., description="Canonical Batch UUID")
+    transitDurationHours: float = Field(..., ge=0.0)
+    tempVariance: float = Field(..., ge=0.0)
+    custodyHandovers: int = Field(..., ge=1)
+    reportedExceptions: int = Field(default=0, ge=0)
+    supplierReliabilityScore: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class PredictionResult(BaseModel):
@@ -89,11 +142,10 @@ class PredictionResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Helper utilities
+# Helper Utilities
 # ---------------------------------------------------------------------------
 
 def _parse_dt(dt_str: Optional[str]) -> Optional[datetime]:
-    """Safely parse an ISO datetime string."""
     if not dt_str:
         return None
     try:
@@ -102,18 +154,77 @@ def _parse_dt(dt_str: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def _risk_level(score: float) -> Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
-    if score >= 80:
+def _classify_risk_level(score: float) -> Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]:
+    if score >= 80.0:
         return "CRITICAL"
-    elif score >= 50:
+    elif score >= 50.0:
         return "HIGH"
-    elif score >= 20:
+    elif score >= 20.0:
         return "MEDIUM"
     return "LOW"
 
 
+def extract_batch_features(payload: RiskScoreRequest) -> Dict[str, float]:
+    """
+    Extracts the 10 quantitative features required by the scikit-learn classifier pipeline.
+    """
+    batch = payload.batch
+    events = payload.events
+
+    temps = [ev.temperature for ev in events if ev.temperature is not None]
+    humidities = [ev.humidity for ev in events if ev.humidity is not None]
+
+    temp_mean = float(np.mean(temps)) if temps else 4.0
+    temp_std = float(np.std(temps)) if len(temps) > 1 else 0.0
+
+    temp_excursions = sum(1 for t in temps if t > 8.0 or t < -2.0)
+    humidity_excursions = sum(1 for h in humidities if h > 85.0)
+    humidity_mean = float(np.mean(humidities)) if humidities else 60.0
+
+    # Custody gap calculation
+    timestamps = []
+    for ev in events:
+        dt = _parse_dt(ev.occurredAt)
+        if dt:
+            timestamps.append(dt)
+
+    max_gap_hours = 0.0
+    if len(timestamps) >= 2:
+        timestamps.sort()
+        for i in range(1, len(timestamps)):
+            gap = (timestamps[i] - timestamps[i - 1]).total_seconds() / 3600.0
+            if gap > max_gap_hours:
+                max_gap_hours = gap
+
+    # Expiry flag
+    is_expired = 0.0
+    expiry_dt = _parse_dt(batch.expiryDate)
+    if expiry_dt:
+        # compare timezone-aware
+        now_dt = datetime.now(timezone.utc)
+        target_dt = expiry_dt if expiry_dt.tzinfo else expiry_dt.replace(tzinfo=timezone.utc)
+        if target_dt < now_dt:
+            is_expired = 1.0
+
+    # Recalled flag
+    is_recalled = 1.0 if batch.status == "RECALLED" else 0.0
+
+    return {
+        "temp_excursions": float(temp_excursions),
+        "temp_mean": round(temp_mean, 2),
+        "temp_std": round(temp_std, 2),
+        "humidity_excursions": float(humidity_excursions),
+        "humidity_mean": round(humidity_mean, 1),
+        "custody_gap_hours_max": round(max_gap_hours, 1),
+        "total_events": float(max(len(events), payload.totalEvents)),
+        "hash_mismatches": float(payload.hashMismatches),
+        "is_expired": is_expired,
+        "is_recalled": is_recalled
+    }
+
+
 # ---------------------------------------------------------------------------
-# Health check
+# Health Check Endpoint
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
@@ -122,123 +233,113 @@ def health_check():
         "status": "healthy",
         "service": "securechainflow-ai-service",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "modelsLoaded": ["batch-risk-scorer-v1.1", "anomaly-heuristic-v1.1"]
+        "modelLoaded": _loaded_model is not None,
+        "activeEngine": "scikit-learn-rf-v1.0.0" if _loaded_model else "heuristic-guardrail-v1.2",
+        "featureSchemaVersion": "v1.0"
     }
 
 
 # ---------------------------------------------------------------------------
-# NEW: Structured risk scoring endpoint consumed by Express analytics module
+# Main Risk Scoring Endpoint
 # ---------------------------------------------------------------------------
 
 @app.post("/api/v1/risk-score", response_model=RiskScoreResponse)
 def compute_risk_score(payload: RiskScoreRequest):
     """
-    Compute a 0-100 risk score for a supply chain batch.
-    Analyzes event chain telemetry, hash integrity, batch status and expiry.
+    Computes a 0-100 risk score and anomaly diagnosis for a supply chain batch.
+    Uses the trained Random Forest model with safety guardrail overrides.
     """
-    score: float = 0.0
+    features = extract_batch_features(payload)
     anomalies: List[str] = []
 
-    batch = payload.batch
-    events = payload.events
+    # 1. Model inference
+    model_version = "heuristic-guardrail-v1.2"
+    raw_ml_prob = 0.0
 
-    # --- Recalled batch --------------------------------------------------
-    if batch.status == "RECALLED":
-        score += 80.0
-        anomalies.append("Batch has been recalled")
+    if _loaded_model is not None:
+        try:
+            feature_df = pd.DataFrame([[features[col] for col in FEATURE_COLUMNS]], columns=FEATURE_COLUMNS)
+            # Probability of anomalous / high-risk class
+            probs = _loaded_model.predict_proba(feature_df)[0]
+            raw_ml_prob = float(probs[1]) if len(probs) > 1 else float(probs[0])
+            model_version = "scikit-learn-rf-v1.0.0"
+        except Exception as e:
+            print(f"[Inference Warning] ML model evaluation error ({e}); falling back to heuristic engine.")
+            raw_ml_prob = 0.0
 
-    # --- Expiry check ----------------------------------------------------
-    expiry_dt = _parse_dt(batch.expiryDate)
-    if expiry_dt and expiry_dt.replace(tzinfo=None) < datetime.utcnow():
-        score += 50.0
-        anomalies.append("Batch has passed its expiry date")
+    # Base continuous score (0 - 100)
+    score = raw_ml_prob * 100.0 if _loaded_model is not None else 0.0
 
-    # --- Hash integrity failures -----------------------------------------
-    if payload.hashMismatches > 0:
-        hash_penalty = min(60.0, payload.hashMismatches * 30.0)
-        score += hash_penalty
+    # 2. Safety Guardrails & Deterministic Anomaly Attribution
+    if features["is_recalled"] == 1.0:
+        score = max(score, 85.0)
+        anomalies.append("Batch recall order active")
+
+    if features["is_expired"] == 1.0:
+        score = max(score, 60.0)
+        anomalies.append("Batch has exceeded declared expiry date")
+
+    if features["hash_mismatches"] > 0:
+        hash_penalty = min(70.0, features["hash_mismatches"] * 35.0)
+        score = max(score, hash_penalty)
         anomalies.append(
-            f"{payload.hashMismatches} payload hash mismatch(es) detected — possible tampering"
+            f"{int(features['hash_mismatches'])} cryptographic hash mismatch(es) detected — possible data tampering"
         )
 
-    # --- No events at all ------------------------------------------------
-    if payload.totalEvents == 0:
-        score += 25.0
-        anomalies.append("No supply chain events have been recorded")
+    if features["total_events"] == 0:
+        score = max(score, 25.0)
+        anomalies.append("No supply-chain lifecycle events recorded")
 
-    # --- Blockchain unconfirmed ------------------------------------------
-    if batch.blockchainStatus in ("PENDING", "FAILED"):
-        score += 15.0
-        anomalies.append(f"Blockchain status is '{batch.blockchainStatus}' — not yet committed")
+    if features["temp_excursions"] > 0:
+        anomalies.append(
+            f"{int(features['temp_excursions'])} cold-chain temperature excursion(s) outside [-2°C, 8°C] range"
+        )
 
-    # --- Telemetry analysis ----------------------------------------------
-    temp_excursions = 0
-    humidity_excursions = 0
-    timestamps: List[datetime] = []
+    if features["temp_std"] > 3.0:
+        anomalies.append(f"High temperature variance detected (std dev: {features['temp_std']}°C)")
 
-    for ev in events:
-        # Temperature: cold-chain typical range -2°C to +8°C
-        if ev.temperature is not None:
-            if ev.temperature > 8.0:
-                temp_excursions += 1
-            elif ev.temperature < -2.0:
-                temp_excursions += 1
+    if features["humidity_excursions"] > 0:
+        anomalies.append(
+            f"{int(features['humidity_excursions'])} high humidity excursion(s) above 85% RH"
+        )
 
-        # Humidity: flag >85 %RH
-        if ev.humidity is not None and ev.humidity > 85.0:
-            humidity_excursions += 1
+    if features["custody_gap_hours_max"] > 72.0:
+        score = max(score, 20.0)
+        anomalies.append(
+            f"Extended {int(features['custody_gap_hours_max'])}h transit gap between consecutive custody handovers"
+        )
 
-        dt = _parse_dt(ev.occurredAt)
-        if dt:
-            timestamps.append(dt)
+    # In heuristic mode without ML model, calculate additive baseline
+    if _loaded_model is None:
+        heuristic_score = 0.0
+        if features["is_recalled"]: heuristic_score += 85.0
+        if features["is_expired"]: heuristic_score += 50.0
+        if features["hash_mismatches"]: heuristic_score += min(60.0, features["hash_mismatches"] * 30.0)
+        if features["temp_excursions"]: heuristic_score += min(40.0, features["temp_excursions"] * 12.0)
+        if features["humidity_excursions"]: heuristic_score += min(20.0, features["humidity_excursions"] * 8.0)
+        score = max(score, heuristic_score)
 
-    if temp_excursions > 0:
-        temp_penalty = min(40.0, temp_excursions * 12.0)
-        score += temp_penalty
-        anomalies.append(f"{temp_excursions} cold-chain temperature excursion(s) detected")
-
-    if humidity_excursions > 0:
-        humidity_penalty = min(20.0, humidity_excursions * 8.0)
-        score += humidity_penalty
-        anomalies.append(f"{humidity_excursions} high humidity excursion(s) detected")
-
-    # --- Time gap analysis -----------------------------------------------
-    if len(timestamps) >= 2:
-        timestamps.sort()
-        max_gap_hours = 0.0
-        for i in range(1, len(timestamps)):
-            gap_h = (timestamps[i] - timestamps[i - 1]).total_seconds() / 3600.0
-            if gap_h > max_gap_hours:
-                max_gap_hours = gap_h
-
-        if max_gap_hours > 72.0:
-            score += 12.0
-            anomalies.append(
-                f"Suspicious {round(max_gap_hours)}h custody gap between consecutive events"
-            )
-
-    # --- Sigmoid normalization to 0-100 ---------------------------------
-    # Clamp and keep linear for interpretability; sigmoid compress outliers
     final_score = round(min(100.0, max(0.0, score)), 2)
 
     if not anomalies:
-        anomalies.append("All supply chain metrics are within acceptable operational parameters")
+        anomalies.append("All supply chain and telemetry parameters are within nominal tolerances")
 
     return RiskScoreResponse(
         risk_score=final_score,
-        risk_level=_risk_level(final_score),
+        risk_level=_classify_risk_level(final_score),
         anomalies=anomalies,
-        model_version="heuristic-v1.1.0",
+        model_version=model_version,
         generated_at=datetime.now(timezone.utc).isoformat(),
+        feature_summary=features,
         disclaimer=(
-            "AI-generated risk score is for decision support only "
-            "and must not replace authorized human audit."
-        ),
+            "AI-generated risk score is a decision-support indicator only "
+            "and does not replace formal regulatory or quality audit."
+        )
     )
 
 
 # ---------------------------------------------------------------------------
-# Legacy /predict endpoint — preserved for backward compatibility
+# Legacy /predict Endpoint
 # ---------------------------------------------------------------------------
 
 @app.post("/predict", response_model=PredictionResult)

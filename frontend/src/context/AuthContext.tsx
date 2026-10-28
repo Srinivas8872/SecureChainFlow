@@ -13,6 +13,7 @@ interface AuthContextType {
     password: string;
     role: UserRole;
     organizationName?: string;
+    organizationId?: string;
   }) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
@@ -71,6 +72,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     password: string;
     role: UserRole;
     organizationName?: string;
+    organizationId?: string;
   }) => {
     setIsLoading(true);
     try {

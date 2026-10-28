@@ -321,7 +321,7 @@ export const VerifyPage: React.FC = () => {
 
   const handleQrResult = useCallback((text: string) => {
     // Extract token from URL if scanned as a full URL
-    const urlMatch = text.match(/\/verify\/([a-f0-9-]+)/i);
+    const urlMatch = text.match(/\/(?:verify|qr)\/([a-zA-Z0-9_-]+)/i);
     const extracted = urlMatch ? urlMatch[1] : text.trim();
     setTokenInput(extracted);
     setScannerOpen(false);

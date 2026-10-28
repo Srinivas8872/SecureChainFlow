@@ -14,6 +14,9 @@
     "build:backend": "npm --prefix backend run build",
     "build:frontend": "npm --prefix frontend run build",
     "test:backend": "npm --prefix backend run test",
+    "test:chaincode": "npm --prefix backend test -- --rootDir .. blockchain/chaincode/test --testMatch **/*.test.js",
+    "test:ai": "cd ai-service && .venv\\Scripts\\python -m pytest tests",
+    "train:ai": "cd ai-service && .venv\\Scripts\\python training/train_baseline.py",
     "seed:backend": "npm --prefix backend run seed"
   },
   "devDependencies": {

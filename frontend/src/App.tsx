@@ -14,6 +14,12 @@ import { NewBatchPage } from './pages/batches/NewBatchPage';
 import { BatchDetailPage } from './pages/batches/BatchDetailPage';
 import { VerifyPage } from './pages/verify/VerifyPage';
 import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
+import { ShipmentsPage } from './pages/shipments/ShipmentsPage';
+import { AuditLogsPage } from './pages/audit/AuditLogsPage';
+import { OrganizationsPage } from './pages/organizations/OrganizationsPage';
+import { UsersPage } from './pages/users/UsersPage';
+import { SystemHealthPage } from './pages/health/SystemHealthPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
 
 const AppContent: React.FC = () => {
   const { user, logout } = useAuth();
@@ -29,6 +35,7 @@ const AppContent: React.FC = () => {
         {/* Public Verification — no auth required */}
         <Route path="/verify" element={<VerifyPage />} />
         <Route path="/verify/:token" element={<VerifyPage />} />
+        <Route path="/qr/:token" element={<VerifyPage />} />
 
         {/* Authenticated Dashboard */}
         <Route
@@ -78,6 +85,16 @@ const AppContent: React.FC = () => {
           }
         />
 
+        {/* Shipments & Logistics Tracking */}
+        <Route
+          path="/shipments"
+          element={
+            <ProtectedRoute>
+              <ShipmentsPage />
+            </ProtectedRoute>
+          }
+        />
+
         {/* Analytics & AI Risk Intelligence */}
         <Route
           path="/analytics"
@@ -88,13 +105,53 @@ const AppContent: React.FC = () => {
           }
         />
 
+        {/* Consortium Audit Trail */}
+        <Route
+          path="/audit-logs"
+          element={
+            <ProtectedRoute>
+              <AuditLogsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Consortium Organizations Registry */}
+        <Route
+          path="/organizations"
+          element={
+            <ProtectedRoute>
+              <OrganizationsPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Users & Roles Management */}
+        <Route
+          path="/users"
+          element={
+            <ProtectedRoute>
+              <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* System Health & Node Diagnostics */}
         <Route
           path="/system-health"
           element={
-            <div className="max-w-2xl mx-auto p-8 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-              <h2 className="text-xl font-bold text-white">Consortium System Health</h2>
-              <p className="text-sm text-slate-400">Live diagnostics for Hyperledger Fabric, MongoDB, AI Service, and Storage.</p>
-            </div>
+            <ProtectedRoute>
+              <SystemHealthPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Operator Settings */}
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage />
+            </ProtectedRoute>
           }
         />
 

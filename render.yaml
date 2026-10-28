@@ -1,0 +1,73 @@
+# ==============================================================================
+# SecureChainFlow Render Infrastructure Manifest
+# ==============================================================================
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Backend REST API Service
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: securechainflow-backend
+    env: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 24h
+      - key: BCRYPT_ROUNDS
+        value: "10"
+      - key: AI_SERVICE_URL
+        fromService:
+          type: web
+          name: securechainflow-ai
+          property: host
+      - key: FABRIC_USE_MOCK_GATEWAY
+        value: "true"
+
+  # ----------------------------------------------------------------------------
+  # 2. FastAPI scikit-learn AI Quality Inference Service
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: securechainflow-ai
+    env: python
+    plan: starter
+    rootDir: ai-service
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  # ----------------------------------------------------------------------------
+  # 3. Frontend Static Web Application
+  # ----------------------------------------------------------------------------
+  - type: web
+    name: securechainflow-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_APP_NAME
+        value: SecureChainFlow

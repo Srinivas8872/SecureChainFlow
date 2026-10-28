@@ -1,0 +1,18 @@
+{
+  "modelVersion": "rf-v1.0.0",
+  "featureSchemaVersion": "v1.0",
+  "features": [
+    "temp_excursions",
+    "temp_mean",
+    "temp_std",
+    "humidity_excursions",
+    "humidity_mean",
+    "custody_gap_hours_max",
+    "total_events",
+    "hash_mismatches",
+    "is_expired",
+    "is_recalled"
+  ],
+  "algorithm": "RandomForestClassifier(n_estimators=100, max_depth=8)",
+  "createdAt": "2026-10-28T07:20:05.942877+00:00"
+}

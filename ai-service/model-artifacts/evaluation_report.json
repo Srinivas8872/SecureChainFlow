@@ -1,0 +1,66 @@
+{
+  "task": "Supply Chain Batch Quality Risk & Cold-Chain Anomaly Assessment",
+  "timestamp": "2026-10-28T07:20:05.942074+00:00",
+  "dataset": {
+    "total_samples": 2500,
+    "features": [
+      "temp_excursions",
+      "temp_mean",
+      "temp_std",
+      "humidity_excursions",
+      "humidity_mean",
+      "custody_gap_hours_max",
+      "total_events",
+      "hash_mismatches",
+      "is_expired",
+      "is_recalled"
+    ],
+    "target": "is_anomaly (0 = nominal, 1 = high risk)",
+    "data_provenance": "Synthetic calibrated telemetry based on HACCP/cold-chain standards"
+  },
+  "baseline_comparison": {
+    "baseline": {
+      "model": "LogisticRegression (Baseline)",
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0
+    },
+    "selected_model": {
+      "model": "RandomForestClassifier (v1.0.0)",
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0,
+      "confusion_matrix": [
+        [
+          375,
+          0
+        ],
+        [
+          0,
+          125
+        ]
+      ],
+      "test_samples": 500
+    }
+  },
+  "feature_importances": {
+    "temp_excursions": 0.2319,
+    "temp_mean": 0.1833,
+    "temp_std": 0.3732,
+    "humidity_excursions": 0.0603,
+    "humidity_mean": 0.0724,
+    "custody_gap_hours_max": 0.0739,
+    "total_events": 0.0003,
+    "hash_mismatches": 0.0038,
+    "is_expired": 0.0003,
+    "is_recalled": 0.0006
+  },
+  "limitations": [
+    "Trained on synthetic operational distributions; requires continuous retraining on production sensor telemetry.",
+    "Predictions are decision-support aids and do not supersede authorized human quality inspections."
+  ]
+}

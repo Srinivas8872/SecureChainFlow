@@ -4,7 +4,7 @@ import { SupplyChainEvent } from '../../models/SupplyChainEvent';
 import { Product } from '../../models/Product';
 import { AppError } from '../../middleware/errorHandler';
 import { sendSuccess } from '../../utils/response';
-import { computeSha256 } from '../../utils/crypto';
+import { computeSha256, computeEventPayloadHash } from '../../utils/crypto';
 
 /**
  * Public QR Verification endpoint.
@@ -53,21 +53,51 @@ export async function verifyBatchByToken(
     // Compute on-the-fly ledger confirmation status
     const verifiedPayloadHashes = events
       .filter((e) => e.payloadHash)
-      .map((e) => ({
-        eventType: e.eventType,
-        occurredAt: e.occurredAt,
-        payloadHash: e.payloadHash,
-        recomputedHash: computeSha256({
+      .map((e) => {
+        const actor = e.actorId as any;
+        const org = e.organizationId as any;
+        const actorIdStr = actor?._id?.toString?.() ?? (typeof actor === 'string' ? actor : null);
+        const orgIdStr = org?._id?.toString?.() ?? (typeof org === 'string' ? org : null);
+
+        // Try canonical hash with complete fields
+        let recomputedHash = computeEventPayloadHash({
           batchId: batch._id.toString(),
+          batchCode: batch.batchCode,
           eventType: e.eventType,
-          occurredAt: e.occurredAt?.toISOString?.() ?? e.occurredAt,
-          location: e.location,
+          actorId: actorIdStr,
+          organizationId: orgIdStr,
+          location: e.location ?? null,
+          facility: e.facility ?? null,
           temperature: e.temperature,
           humidity: e.humidity,
-        }),
-        blockchainStatus: e.blockchainStatus,
-        txId: e.txId ?? null,
-      }));
+          notes: e.notes ?? null,
+          occurredAt: e.occurredAt,
+        });
+
+        // Fallback for legacy seeded records if needed
+        if (recomputedHash !== e.payloadHash) {
+          const legacyHash = computeSha256({
+            batchId: batch._id.toString(),
+            eventType: e.eventType,
+            occurredAt: e.occurredAt?.toISOString?.() ?? e.occurredAt,
+            location: e.location,
+            temperature: e.temperature,
+            humidity: e.humidity,
+          });
+          if (legacyHash === e.payloadHash) {
+            recomputedHash = legacyHash;
+          }
+        }
+
+        return {
+          eventType: e.eventType,
+          occurredAt: e.occurredAt,
+          payloadHash: e.payloadHash,
+          recomputedHash,
+          blockchainStatus: e.blockchainStatus,
+          txId: e.txId ?? null,
+        };
+      });
 
     const integrityScore =
       verifiedPayloadHashes.length === 0

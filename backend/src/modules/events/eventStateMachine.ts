@@ -6,11 +6,11 @@ import { UserRole } from '../../models/User';
  * Permitted next event transitions based on the current batch status
  */
 export const PERMITTED_TRANSITIONS: Record<BatchStatus, EventType[]> = {
-  REGISTERED: ['PROCESSED', 'QUALITY_CHECKED', 'DISPATCHED', 'RECALLED'],
+  REGISTERED: ['REGISTERED', 'PROCESSED', 'QUALITY_CHECKED', 'DISPATCHED', 'RECALLED'],
   IN_PROCESSING: ['QUALITY_CHECKED', 'DISPATCHED', 'RECALLED'],
   QUALITY_APPROVED: ['DISPATCHED', 'STORED', 'IN_TRANSIT', 'RECALLED'],
-  IN_TRANSIT: ['RECEIVED', 'RECALLED'],
-  STORED: ['DISPATCHED', 'QUALITY_CHECKED', 'RETAILED', 'RECALLED'],
+  IN_TRANSIT: ['IN_TRANSIT', 'RECEIVED', 'RECALLED'],
+  STORED: ['STORED', 'DISPATCHED', 'QUALITY_CHECKED', 'RETAILED', 'DELIVERED', 'RECALLED'],
   AVAILABLE_FOR_SALE: ['DELIVERED', 'RECALLED'],
   DELIVERED: ['RECALLED'], // Terminal custody state unless emergency recall occurs
   RECALLED: [] // Terminal state

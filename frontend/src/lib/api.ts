@@ -86,8 +86,29 @@ class ApiClient {
     });
   }
 
+  patch<T>(endpoint: string, data?: any): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: data !== undefined ? JSON.stringify(data) : undefined,
+    });
+  }
+
   delete<T>(endpoint: string): Promise<T> {
     return this.request<T>(endpoint, { method: 'DELETE' });
+  }
+
+  async downloadBlob(endpoint: string): Promise<Blob> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const token = this.getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new Error(`Download failed with HTTP ${response.status}`);
+    }
+    return await response.blob();
   }
 }
 

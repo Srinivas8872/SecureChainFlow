@@ -139,8 +139,11 @@ const supplyChainEventSchema = new Schema<ISupplyChainEvent>(
   }
 );
 
-// Compound index to guarantee uniqueness of idempotencyKey per batch
-supplyChainEventSchema.index({ batchId: 1, idempotencyKey: 1 }, { unique: true, sparse: true });
+// Compound index to guarantee uniqueness of idempotencyKey per batch only when provided
+supplyChainEventSchema.index(
+  { batchId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 supplyChainEventSchema.index({ batchId: 1, occurredAt: 1 });
 
 export const SupplyChainEvent: Model<ISupplyChainEvent> =

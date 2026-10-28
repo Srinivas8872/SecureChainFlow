@@ -6,6 +6,15 @@ import { connectDatabase, disconnectDatabase } from './config/database';
 async function bootstrap() {
   await connectDatabase();
 
+  if (env.NODE_ENV !== 'production' && env.USE_IN_MEMORY_DB) {
+    try {
+      const { seedDatabase } = await import('./scripts/seed');
+      await seedDatabase();
+    } catch (seedErr) {
+      logger.warn('Auto-seeding notice:', seedErr);
+    }
+  }
+
   const server = app.listen(env.PORT, () => {
     logger.info(`SecureChainFlow Backend API running on port ${env.PORT} in [${env.NODE_ENV}] mode`);
     logger.info(`Health check available at http://localhost:${env.PORT}/api/v1/health`);

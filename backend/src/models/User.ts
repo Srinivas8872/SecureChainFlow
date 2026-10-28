@@ -91,7 +91,12 @@ const userSchema = new Schema<IUser>(
     toJSON: {
       transform: (_doc, ret: any) => {
         ret.id = ret._id?.toString();
-        ret.organizationId = ret.organizationId?.toString();
+        if (ret.organizationId && typeof ret.organizationId === 'object' && ret.organizationId.name) {
+          ret.organizationName = ret.organizationId.name;
+          ret.organizationId = ret.organizationId._id ? ret.organizationId._id.toString() : ret.organizationId.toString();
+        } else if (ret.organizationId) {
+          ret.organizationId = ret.organizationId.toString();
+        }
         delete ret.passwordHash;
         delete ret._id;
         delete ret.__v;

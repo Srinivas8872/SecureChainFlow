@@ -156,7 +156,7 @@ export async function getBatchById(req: Request, res: Response, next: NextFuncti
     }
 
     // Generate QR verification data URL for client preview
-    const verificationUrl = `${env.FRONTEND_ORIGIN}/qr/${batch.verificationToken}`;
+    const verificationUrl = `${env.FRONTEND_ORIGIN}/verify/${batch.verificationToken}`;
     const qrDataUrl = await QRCode.toDataURL(verificationUrl, {
       errorCorrectionLevel: 'H',
       margin: 2,

@@ -5,8 +5,9 @@ import { Organization } from '../../models/Organization';
 import { AuditLog } from '../../models/AuditLog';
 import { AppError } from '../../middleware/errorHandler';
 import { sendSuccess } from '../../utils/response';
-import { computeSha256 } from '../../utils/crypto';
+import { computeEventPayloadHash } from '../../utils/crypto';
 import { env } from '../../config/env';
+import { fabricGateway, FabricTransactionResult } from '../../integrations/fabric/fabricAdapter';
 import {
   isValidTransition,
   isRoleAuthorizedForEvent,
@@ -71,7 +72,7 @@ export async function recordEvent(req: Request, res: Response, next: NextFunctio
     const occurredAt = validated.occurredAt ? new Date(validated.occurredAt) : new Date();
 
     // 4. Compute Canonical SHA-256 Digest
-    const canonicalEventPayload = {
+    const payloadHash = computeEventPayloadHash({
       batchId: batch._id.toString(),
       batchCode: batch.batchCode,
       eventType: validated.eventType,
@@ -82,13 +83,9 @@ export async function recordEvent(req: Request, res: Response, next: NextFunctio
       temperature: validated.temperature !== undefined ? validated.temperature : null,
       humidity: validated.humidity !== undefined ? validated.humidity : null,
       notes: validated.notes || null,
-      occurredAt: occurredAt.toISOString()
-    };
-
-    const payloadHash = computeSha256(canonicalEventPayload);
-    const initialBlockchainStatus = env.FABRIC_USE_MOCK_GATEWAY ? 'LOCAL_DEMO' : 'PENDING';
-
-    // 5. Create Event Record
+      occurredAt,
+    });
+    // 5. Create Event Record in initial PENDING status
     const event = await SupplyChainEvent.create({
       batchId: batch._id,
       eventType: validated.eventType,
@@ -100,14 +97,47 @@ export async function recordEvent(req: Request, res: Response, next: NextFunctio
       humidity: validated.humidity,
       notes: validated.notes,
       payloadHash,
-      blockchainStatus: initialBlockchainStatus,
+      blockchainStatus: 'PENDING',
       idempotencyKey: validated.idempotencyKey,
       occurredAt
     });
 
-    // 6. Update Batch State & Custody Handover
+    // 6. Submit Event to Hyperledger Fabric Gateway
+    let ledgerResult: FabricTransactionResult;
+    try {
+      ledgerResult = await fabricGateway.recordEvent({
+        eventId: event._id.toString(),
+        batchId: batch._id.toString(),
+        batchCode: batch.batchCode,
+        eventType: validated.eventType,
+        actorId: req.user.id,
+        organizationId: req.user.organizationId,
+        payloadHash,
+        occurredAt,
+      });
+    } catch (fabricErr: any) {
+      ledgerResult = {
+        txId: null,
+        blockchainStatus: 'FAILED',
+        committedAt: new Date().toISOString(),
+        message: fabricErr.message,
+      };
+    }
+
+    // 7. Update Event with ledger confirmation status and txId
+    event.blockchainStatus = ledgerResult.blockchainStatus;
+    if (ledgerResult.txId) {
+      event.txId = ledgerResult.txId;
+    }
+    await event.save();
+
+    // 8. Update Batch State & Custody Handover
     const newStatus = EVENT_TO_BATCH_STATUS_MAP[validated.eventType];
     batch.status = newStatus;
+    batch.blockchainStatus = ledgerResult.blockchainStatus;
+    if (ledgerResult.txId) {
+      batch.txId = ledgerResult.txId;
+    }
 
     if (validated.newCustodianOrgId) {
       const targetOrg = await Organization.findById(validated.newCustodianOrgId);
@@ -133,6 +163,8 @@ export async function recordEvent(req: Request, res: Response, next: NextFunctio
         batchId: batch._id.toString(),
         eventType: event.eventType,
         payloadHash,
+        blockchainStatus: ledgerResult.blockchainStatus,
+        txId: ledgerResult.txId,
         previousStatus: batch.status,
         newStatus
       },

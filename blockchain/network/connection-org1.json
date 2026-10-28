@@ -1,0 +1,63 @@
+{
+  "name": "securechainflow-org1-network",
+  "version": "1.0.0",
+  "client": {
+    "organization": "Org1",
+    "connection": {
+      "timeout": {
+        "peer": {
+          "endorser": "300"
+        },
+        "orderer": "300"
+      }
+    }
+  },
+  "channels": {
+    "mychannel": {
+      "orderers": [
+        "orderer.example.com"
+      ],
+      "peers": {
+        "peer0.org1.example.com": {
+          "endorsingPeer": true,
+          "chaincodeQuery": true,
+          "ledgerQuery": true,
+          "eventSource": true
+        }
+      }
+    }
+  },
+  "organizations": {
+    "Org1": {
+      "mspid": "Org1MSP",
+      "peers": [
+        "peer0.org1.example.com"
+      ],
+      "certificateAuthorities": [
+        "ca.org1.example.com"
+      ]
+    }
+  },
+  "orderers": {
+    "orderer.example.com": {
+      "url": "grpc://localhost:7050",
+      "grpcOptions": {
+        "ssl-target-name-override": "orderer.example.com"
+      }
+    }
+  },
+  "peers": {
+    "peer0.org1.example.com": {
+      "url": "grpc://localhost:7051",
+      "grpcOptions": {
+        "ssl-target-name-override": "peer0.org1.example.com"
+      }
+    }
+  },
+  "certificateAuthorities": {
+    "ca.org1.example.com": {
+      "url": "http://localhost:7054",
+      "caName": "ca-org1"
+    }
+  }
+}

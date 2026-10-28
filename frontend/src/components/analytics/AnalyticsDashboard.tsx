@@ -12,6 +12,7 @@ import {
   Activity,
   XCircle,
   Cpu,
+  Download,
 } from 'lucide-react';
 import { api } from '../../lib/api';
 
@@ -171,6 +172,7 @@ export const AnalyticsDashboard: React.FC<{ batchId?: string }> = ({ batchId }) 
   const [riskLoading, setRiskLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [riskError, setRiskError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const fetchSummary = async () => {
     setSummaryLoading(true);
@@ -198,6 +200,25 @@ export const AnalyticsDashboard: React.FC<{ batchId?: string }> = ({ batchId }) 
     }
   };
 
+  const handleExportCsv = async (type: 'batches' | 'events') => {
+    setExporting(true);
+    try {
+      const blob = await api.downloadBlob(`/analytics/export?type=${type}`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `securechainflow_${type}_${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Export failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   useEffect(() => {
     fetchSummary();
   }, []);
@@ -209,20 +230,40 @@ export const AnalyticsDashboard: React.FC<{ batchId?: string }> = ({ batchId }) 
   return (
     <div className="space-y-6">
       {/* Section header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-indigo-400" />
           Analytics & Risk Intelligence
         </h2>
-        <button
-          id="analytics-refresh-btn"
-          onClick={fetchSummary}
-          disabled={summaryLoading}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 text-xs transition"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${summaryLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleExportCsv('batches')}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs transition disabled:opacity-50"
+            title="Download Batches CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-sky-400" />
+            <span>Export Batches</span>
+          </button>
+          <button
+            onClick={() => handleExportCsv('events')}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-white text-xs transition disabled:opacity-50"
+            title="Download Events CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Export Events</span>
+          </button>
+          <button
+            id="analytics-refresh-btn"
+            onClick={fetchSummary}
+            disabled={summaryLoading}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-slate-200 text-xs transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${summaryLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Summary KPIs */}

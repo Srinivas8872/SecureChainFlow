@@ -16,6 +16,7 @@ import {
   X
 } from 'lucide-react';
 import { Navbar } from './Navbar';
+import { ConsortiumChatbot } from '../assistant/ConsortiumChatbot';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -106,6 +107,9 @@ export const AppShell: React.FC<AppShellProps> = ({ children, user, onLogout }) 
           </div>
         </main>
       </div>
+
+      {/* Floating Consortium AI Assistant Chatbot */}
+      <ConsortiumChatbot user={user} />
     </div>
   );
 };

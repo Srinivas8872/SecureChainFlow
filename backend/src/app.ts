@@ -12,6 +12,7 @@ import batchRoutes from './modules/batches/batchRoutes';
 import verifyRoutes from './modules/verify/verifyRoutes';
 import analyticsRoutes from './modules/analytics/analyticsRoutes';
 import auditRoutes from './modules/audit/auditRoutes';
+import assistantRoutes from './modules/assistant/assistantRoutes';
 
 const app: Application = express();
 
@@ -46,6 +47,7 @@ app.use('/api/v1/batches', batchRoutes);
 app.use('/api/v1/verify', verifyRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 app.use('/api/v1/audit-logs', auditRoutes);
+app.use('/api/v1/assistant', assistantRoutes);
 
 // Root informational endpoint
 app.get('/', (_req: Request, res: Response) => {

@@ -135,15 +135,8 @@ const AppContent: React.FC = () => {
           }
         />
 
-        {/* System Health & Node Diagnostics */}
-        <Route
-          path="/system-health"
-          element={
-            <ProtectedRoute>
-              <SystemHealthPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* System Health & Node Diagnostics — Public Diagnostic Probe */}
+        <Route path="/system-health" element={<SystemHealthPage />} />
 
         {/* Operator Settings */}
         <Route
